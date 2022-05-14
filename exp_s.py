@@ -4,6 +4,7 @@
 #
 
 
+from operator import ge
 from turtle import width
 import numpy as np
 import pandas as pd
@@ -16,6 +17,19 @@ import warnings
 
 import matplotlib.pyplot as plt
 import seaborn as sns
+
+def plot_activation(activation_list, act_name_list, lbo=-3.2, ubo=3.2):
+    space = np.linspace(lbo, ubo, 400)
+    fig = plt.subplots(2, 3, figsize=(12, 8))
+
+    for i in range(6):
+        ax = plt.subplot(2, 3, i + 1)
+        sns.lineplot(x=space, y=activation_list[i](torch.Tensor(space)), color='C'+str(i), ax=ax)
+        ax.legend([act_name_list[i]], fontsize=14)
+        ax.grid(True)
+
+    plt.suptitle('Вид функций активации', fontsize=14)
+    plt.show()
 
 def exp_activations(train_data_loader, test_data_loader, activation, act_name, title, color, n_classes=1):
     """
@@ -33,11 +47,13 @@ def exp_activations(train_data_loader, test_data_loader, activation, act_name, t
     opt = torch.optim.Adagrad(model.parameters(), lr=5e-3)
     
     if n_classes == 1:
-        loss = torch.nn.MSELoss()
+        loss = torch.nn.MSELoss(reduction='sum')
         loss_name = 'MSE loss'
+        metric = None
     else:
-        loss = torch.nn.CrossEntropyLoss()
+        loss = torch.nn.CrossEntropyLoss(reduction='sum')
         loss_name = 'Cross Entropy loss'
+        metric = lambda y_true, y_pred: np.sum(y_true == y_pred.argmax(axis=1))
 
     history = fit(10, model, loss, opt,
         train_data_loader, test_loader=test_data_loader, hist_idx=[9])
@@ -54,10 +70,10 @@ def exp_activations(train_data_loader, test_data_loader, activation, act_name, t
             ax.set_ylabel('Плотность', fontsize=12)
 
         if i % 2 == 0:
-            ax.set_xlabel('Линейный слой № ' + str(i // 2 + 1), fontsize=12)
+            ax.set_title('Линейный слой № ' + str(i // 2 + 1), fontsize=12)
             sns.histplot(hist[0][i // 2], bins=50, stat="density", color=color,kde = True, ax=ax)
         else:
-            ax.set_xlabel('Слой '+ act_name  + ' № ' + str(i // 2 + 1), fontsize=12)
+            ax.set_title('Слой '+ act_name  + ' № ' + str(i // 2 + 1), fontsize=12)
             sns.histplot(hist[1][i // 2], bins=50, stat="density", color=color, kde = True, ax=ax)
 
         ax.grid(True)
@@ -70,7 +86,7 @@ def exp_activations(train_data_loader, test_data_loader, activation, act_name, t
 
 
 def exp_FFN(train_data_loader, test_data_loader, title, model_strings, n_models=1, n_classes=1, mode=None,
-            width=30, BN_list=None, DO_list=None, skip_list=None, clip_list=None, init_lists=None):
+            width=100, BN_list=None, DO_list=None, skip_list=None, clip_list=None, init_lists=None):
     """
     Универсальная функция для экспериментов с фиксированной глубиной в 8 слоёв:
     (8 линейных + 8 BN + 8 DO + 8 активации)
@@ -119,18 +135,26 @@ def exp_FFN(train_data_loader, test_data_loader, title, model_strings, n_models=
                 init_list=init_lists[i], skip_list=skip_list[i]) for i in range(n_models)]
 
     if n_classes == 1:
-        loss = torch.nn.MSELoss()
+        loss = torch.nn.MSELoss(reduction='sum')
         loss_name = 'MSE loss'
+        metric = None
     else:
-        loss = torch.nn.CrossEntropyLoss()
+        loss = torch.nn.CrossEntropyLoss(reduction='sum')
         loss_name = 'Cross Entropy loss'
+        metric = lambda y_pred, y_true: (y_true == y_pred.argmax(axis=1)).sum()
 
     opt_s = [torch.optim.Adagrad(models[i].parameters(), lr=5e-3) for i in range(n_models)]
 
     for i in range(n_models):
-        history = fit(30, models[i], loss, opt_s[i],
-            train_data_loader, test_loader=test_data_loader, hist_idx=[29])
-        print(model_strings[i] + ' : ' + loss_name + ' = ', np.around(float(history[0][1]), 4))
+        history = fit(100, models[i], loss, opt_s[i],
+            train_data_loader, test_loader=test_data_loader, hist_idx=[29], get_info_fn=metric)
+
+        if n_classes != 1:
+            print(model_strings[i] + ' : ' + loss_name + ' = ', np.around(float(history[0][1]), 4), \
+            ' : accuracy : {:.4f}'.format(history[0][2].detach().numpy()))
+        else:
+            print(model_strings[i] + ' : ' + loss_name + ' = ', np.around(float(history[0][1]), 4))
+
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         hist = [get_distribution_over_layers(models[i], test_data_loader) for i in range(n_models)]
