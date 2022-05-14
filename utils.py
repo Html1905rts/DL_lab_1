@@ -264,12 +264,12 @@ def fit(num_epochs, model, loss_fn, opt, train_dl, test_loader=None, hist_idx=No
         if (epoch+1) in hist_idx:
             if test_loader is None:
                 if get_info_fn is not None:
-                    history.append((total_loss / len, get_info_fn(model, pred, y)))
+                    history.append((total_loss / len, evaluate(train_dl, model, get_info_fn)))
                 else:
                     history.append(total_loss / len)
             else:
                 if get_info_fn is not None:
-                    history.append((total_loss / len, get_info_fn(model, pred, y)))
+                    history.append((total_loss / len, evaluate(test_loader, model, loss_fn), evaluate(test_loader, model, get_info_fn)))
                 else:
                     history.append((total_loss / len, evaluate(test_loader, model, loss_fn)))
     
@@ -279,7 +279,12 @@ def act_N(torch_actication_fn, upper_bound):
     """
     Создаёт функцию активации, обрезанную сверху числом N
     """
-    def inner_activation(x):
-        acts = torch_actication_fn(x)
-        return  acts * (acts < upper_bound) + upper_bound * (acts >= upper_bound)
+    if upper_bound is None:
+        def inner_activation(x):
+            acts = torch_actication_fn(x)
+            return  acts
+    else:
+        def inner_activation(x):
+            acts = torch_actication_fn(x)
+            return  acts * (acts < upper_bound) + upper_bound * (acts >= upper_bound)
     return inner_activation
